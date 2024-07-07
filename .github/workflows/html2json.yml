@@ -5,9 +5,9 @@ name: HTML2JSON Workflow
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop", "release" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "develop", "release" ]
 
 permissions:
   contents: read
