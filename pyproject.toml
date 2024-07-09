@@ -14,7 +14,7 @@ pythonpath = [
 
 [project]
 name = "bs4_html2json"
-version = "0.0.2"
+version = "0.0.3"
 authors = [
     { name = "Jason Jiménez Cruz", email = "jasonjimenezcruz@gmail.com" },
 ]

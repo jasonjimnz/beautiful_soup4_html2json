@@ -25,6 +25,12 @@ class BeautifulSoupParserEnum:
         return [self._class_types["navigable_string"]]
 
 
+class Html2JsonEmptyBody(Exception):
+    def __init__(self, message: str = "Empty Body exception"):
+        self.message = message
+        super().__init__(self.message)
+
+
 class Html2JsonParser:
     _store_as_list: bool = False
     _store_as_dict: bool = False
@@ -35,16 +41,19 @@ class Html2JsonParser:
     _query_selectors: Set[str] = set()
     _override_random_id: bool = False
     _random_id_funct: callable = None
+    _soup_instance: bs4.BeautifulSoup = None
 
     def __init__(
         self,
         store_as_list: bool = False,
         store_as_dict: bool = False,
         store_as_tree_dict: bool = False,
+        soup_instance: bs4.BeautifulSoup = None,
     ):
         self._store_as_list = store_as_list
         self._store_as_dict = store_as_dict
         self._store_as_tree_dict = store_as_tree_dict
+        self._soup_instance = soup_instance
 
     def set_random_gen_funct(self, random_gen_funct: callable) -> None:
         self._random_id_funct = random_gen_funct
@@ -97,7 +106,7 @@ class Html2JsonParser:
         except AttributeError:
             attrs = {}
 
-        if not page_element.name:
+        if not explicit_query_selector:
             # Yes it also can be None
             query_selector = explicit_query_selector
         else:
@@ -138,9 +147,24 @@ class Html2JsonParser:
             pass
         return node_dict
 
-    def _parse_html_file(self, html_content: str, raw_content: bool = False) -> None:
+    def get_soup_instance(self, html_content: str = None) -> bs4.BeautifulSoup:
+        if self._soup_instance:
+            return self._soup_instance
+
+        if html_content is None:
+            raise Html2JsonEmptyBody(
+                "Html content cannot be None if there is no BeautifulSoup "
+                "instance injected"
+            )
+        return bs4.BeautifulSoup(html_content, self.bs4_handler)
+
+    def _parse_html_file(
+        self, html_content: str = None, raw_content: bool = False
+    ) -> None:
         external_dict = {"nodes": []}
-        soup = bs4.BeautifulSoup(html_content, self.bs4_handler)
+
+        soup = self.get_soup_instance(html_content)
+
         for node in soup:
             query_selector = node.name
             node_result = self.parse_node(node, query_selector, raw_content)
@@ -152,7 +176,9 @@ class Html2JsonParser:
         if self._store_as_tree_dict:
             self._store_tree_dict = external_dict
 
-    def process_parser(self, html_content: str, raw_content: bool = False) -> None:
+    def process_parser(
+        self, html_content: str = None, raw_content: bool = False
+    ) -> None:
         self._store_list: List[Dict[str, Any]] = []
         self._store_dict: Dict[str, Any] = {}
         self._store_tree_dict: Dict[str, Any] = {}
@@ -214,29 +240,31 @@ def html2json(
     options: ParserOptions,
     raw_content: bool = False,
     random_gen_funct: callable = None,
+    soup_instance: bs4.BeautifulSoup = None,
 ) -> Dict[str, Any] | List[Any]:
-    parser = Html2JsonParser(**options.as_dict())
-    if random_gen_funct:
-        parser.set_random_gen_funct(random_gen_funct)
-
-    url_regex = re.compile(
-        r"^(?:http|ftp)s?://"  # http:// or https://
-        r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|"  # domain...
-        r"localhost|"  # localhost...
-        r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"  # ...or ip
-        r"(?::\d+)?"  # optional port
-        r"(?:/?|[/?]\S+)$",
-        re.IGNORECASE,
-    )
-    path_regex = re.compile(r"^[/|.]+.*.\w$")
-    # If it is not a URL or a path, it only allows HTML like files
-    process_content = input_path
-    if url_regex.match(input_path):
-        # Is a URL
-        process_content = requests.get(input_path).content
-    elif path_regex.match(input_path):
-        # Is a path
-        process_content = open(input_path).read()
+    parser = Html2JsonParser(soup_instance=soup_instance, **options.as_dict())
+    process_content = None
+    if not soup_instance:
+        url_regex = re.compile(
+            r"^(?:http|ftp)s?://"  # http:// or https://
+            r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|"  # domain...
+            r"localhost|"  # localhost...
+            r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"  # ...or ip
+            r"(?::\d+)?"  # optional port
+            r"(?:/?|[/?]\S+)$",
+            re.IGNORECASE,
+        )
+        path_regex = re.compile(r"^[/|.]+.*.\w$")
+        # If it is not a URL or a path, it only allows HTML like files
+        process_content = input_path
+        if url_regex.match(input_path):
+            # Is a URL
+            process_content = requests.get(input_path).content
+        elif path_regex.match(input_path):
+            # Is a path
+            process_content = open(input_path).read()
+        if random_gen_funct:
+            parser.set_random_gen_funct(random_gen_funct)
     parser.process_parser(process_content, raw_content)
 
     return {
