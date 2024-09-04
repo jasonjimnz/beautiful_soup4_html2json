@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import abc
 import random
 import re
 from typing import Any, Dict, List, Set
@@ -7,6 +8,42 @@ from typing import Any, Dict, List, Set
 import attr
 import bs4
 import requests
+
+
+class ParserFilterBase(abc.ABC):
+    filter_action: str
+    _base_query_selector: str
+    def parse(self, page_element: bs4.BeautifulSoup) -> bs4.element.PageElement:
+        raise NotImplementedError("Parse method not implemented")
+
+
+
+class ParserFilter(ParserFilterBase):
+    def parse(self, page_element: bs4.BeautifulSoup) -> bs4.element.PageElement:
+        return page_element.select(
+            selector=self._base_query_selector
+        )
+
+
+class LinkFilter(ParserFilter):
+    filter_action = "Link filter"
+    # TODO: this query selector
+    _base_query_selector = "a[href^=http]"
+
+
+class ParserFilters:
+    _soup_instance: bs4.BeautifulSoup
+    _filters: List[ParserFilter] = None
+
+    @property
+    def get_filters(self) -> List[ParserFilter]:
+        return self._filters if self._filters else []
+
+    def add_filter(self, new_filter: ParserFilter) -> None:
+        if self._filters:
+            self._filters.append(new_filter)
+        else:
+            self._filters = [new_filter]
 
 
 class BeautifulSoupParserEnum:
@@ -42,6 +79,7 @@ class Html2JsonParser:
     _override_random_id: bool = False
     _random_id_funct: callable = None
     _soup_instance: bs4.BeautifulSoup = None
+    _default_link_parser: bool = False
 
     def __init__(
         self,
@@ -49,11 +87,13 @@ class Html2JsonParser:
         store_as_dict: bool = False,
         store_as_tree_dict: bool = False,
         soup_instance: bs4.BeautifulSoup = None,
+        default_link_parser: bool = False
     ):
         self._store_as_list = store_as_list
         self._store_as_dict = store_as_dict
         self._store_as_tree_dict = store_as_tree_dict
         self._soup_instance = soup_instance
+        self._default_link_parser = default_link_parser
 
     def set_random_gen_funct(self, random_gen_funct: callable) -> None:
         self._random_id_funct = random_gen_funct
@@ -164,6 +204,14 @@ class Html2JsonParser:
         external_dict = {"nodes": []}
 
         soup = self.get_soup_instance(html_content)
+        filters = ParserFilters()
+        if self._default_link_parser:
+            filters.add_filter(
+                LinkFilter()
+            )
+
+        for filter in filters.get_filters:
+            soup = filter.parse(soup)
 
         for node in soup:
             query_selector = node.name
@@ -217,6 +265,7 @@ class ParserOptions:
     store_as_list: bool = False
     store_as_dict: bool = False
     store_as_tree_dict: bool = False
+    default_link_parser: bool = False
 
     def as_dict(self) -> Dict[str, bool]:
         return attr.asdict(self)
@@ -227,11 +276,13 @@ class ParserOptions:
         store_as_list: bool = False,
         store_as_dict: bool = False,
         store_as_tree_dict: bool = False,
+        default_link_parser: bool = False
     ) -> ParserOptions:
         return cls(
             store_as_list=store_as_list,
             store_as_dict=store_as_dict,
             store_as_tree_dict=store_as_tree_dict,
+            default_link_parser=default_link_parser
         )
 
 
